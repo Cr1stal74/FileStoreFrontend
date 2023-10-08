@@ -1,0 +1,36 @@
+﻿@inject HttpClient _httpClient;
+
+<MudDialog>
+    <DialogContent>
+        @if(_isLoading)
+        {
+            <MudProgressCircular Indeterminate = "true" Color="Color.Secondary" />
+        }
+        else
+        {
+            <MudLink Href="@(BaseUrl + _downloadLink)">@(BaseUrl + _downloadLink)</MudLink>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Color="Color.Primary" OnClick="Submit">Ok</MudButton>
+    </DialogActions>
+</MudDialog>
+@code {
+    [CascadingParameter] MudDialogInstance MudDialog { get; set; }
+
+    [Parameter] public string BaseUrl { get; set; }
+    [Parameter] public Guid FileId { get; set; }
+
+    private bool _isLoading = true;
+    private string _downloadLink;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var response = await _httpClient.GetAsync(BaseUrl + $"/getlink/{FileId}");
+        _downloadLink = await response.Content.ReadAsStringAsync();
+        _isLoading = false;
+        await base.OnInitializedAsync();
+    }
+
+    void Submit() => MudDialog.Close(DialogResult.Ok(true));
+}

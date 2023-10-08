@@ -1,0 +1,121 @@
+﻿@page "/"
+@using FileStoreFrontend.Data;
+@using System.Text.Json;
+@using FileStoreFrontend.Shared;
+@inject HttpClient _httpClient;
+@inject IDialogService _dialogService;
+@inject IJSRuntime JSRuntime;
+
+<PageTitle>Index</PageTitle>
+
+<h1>Files: </h1>
+<p>
+    <MudFileUpload T="IBrowserFile" FilesChanged="UploadFiles">
+        <ButtonTemplate>
+            <MudButton HtmlTag="label"
+                       Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       StartIcon="@Icons.Material.Filled.CloudUpload"
+                       for="@context">
+                Upload Files
+            </MudButton>
+        </ButtonTemplate>
+    </MudFileUpload>
+    <MudCheckBox T="bool" @bind-Checked="@_saveInDatabase">Save in database</MudCheckBox>
+</p>
+
+@if (_files is null)
+{
+    <p>Loading...</p>
+}
+else
+{
+    <MudTable Items="_files" Hover="true" Breakpoint="Breakpoint.Sm">
+        <HeaderContent>
+            <MudTh>Name</MudTh>
+            <MudTh>Size</MudTh>
+            <MudTh>Location</MudTh>
+            <MudTh>Download</MudTh>
+            <MudTh>Uploaded</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTh>@context.Name</MudTh>
+            <MudTh>@FormatBytes(context.Size)</MudTh>
+            <MudTh>@(context.IsInDatabase ? "Database" : "Filesystem")</MudTh>
+                <MudTh>
+                    @if (context.IsDone)
+                {
+                    <MudButton OnClick="async () => await DownloadFile(context.Id)" StartIcon="@Icons.Material.Filled.Download" Variant="Variant.Outlined" />
+                }
+                else
+                {
+                    <p>Uploading...</p>
+                }
+            </MudTh>
+            <MudTh>@(context.IsDone ? "Yes" : "No")</MudTh>
+            </RowTemplate>
+        </MudTable>
+}
+
+@code
+{
+    private List<FileDto> _files;
+    private bool _saveInDatabase = true;
+    private JsonSerializerOptions _jsonSerializerOptions = new()
+        {
+            PropertyNameCaseInsensitive = true
+        };
+    private TimeSpan _pollingInterval = TimeSpan.FromMilliseconds(1000);
+
+    protected override async Task OnInitializedAsync()
+    {
+        UpdateData();
+        await base.OnInitializedAsync();
+    }
+
+    private async Task UpdateData()
+    {
+        while (true)
+        {
+            var response = await _httpClient.GetAsync("/files");
+            var content = await response.Content.ReadAsStringAsync();
+
+            _files = JsonSerializer.Deserialize<List<FileDto>>(content, _jsonSerializerOptions);
+            StateHasChanged();
+            await Task.Delay(_pollingInterval);
+        }
+    }
+
+    private async Task UploadFiles(IBrowserFile file)
+    {
+        var request = new HttpRequestMessage
+            {
+                Method = HttpMethod.Post,
+                Content = new StreamContent(file.OpenReadStream(maxAllowedSize: long.MaxValue)),
+                RequestUri = new Uri("https://filestorebackend.cr1stal.tech/files"),
+            };
+
+        request.Headers.Add("Database-Stored", _saveInDatabase ? "True" : "False");
+        request.Headers.Add("File-Name", file.Name);
+
+        var response = await _httpClient.SendAsync(request);
+    }
+
+    private async Task DownloadFile(Guid id)
+    {
+        var parameters = new DialogParameters<DownloadDialog> { { x => x.BaseUrl, $"https://filestorebackend.cr1stal.tech" },
+                                                                { x => x.FileId, id} };
+        _dialogService.Show<DownloadDialog>("Download link", parameters);
+    }
+
+    private string FormatBytes(long byteCount)
+    {
+        string[] suf = { "B", "KB", "MB", "GB", "TB", "PB", "EB" }; //Longs run out around EB
+        if (byteCount == 0)
+            return "0" + suf[0];
+        long bytes = Math.Abs(byteCount);
+        int place = Convert.ToInt32(Math.Floor(Math.Log(bytes, 1024)));
+        double num = Math.Round(bytes / Math.Pow(1024, place), 1);
+        return (Math.Sign(byteCount) * num).ToString() + suf[place];
+    }
+}
